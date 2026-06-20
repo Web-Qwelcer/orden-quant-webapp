@@ -57,8 +57,8 @@
   input[type=range]::-moz-range-thumb {
     width: 22px; height: 22px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
   }
-  .ticks { display: flex; justify-content: space-between; margin-top: 2px; }
-  .ticks span { color: var(--hint); font-size: 11px; cursor: pointer; padding: 2px 4px; }
+  .ticks { position: relative; height: 16px; margin-top: 2px; }
+  .ticks span { position: absolute; transform: translateX(-50%); color: var(--hint); font-size: 11px; cursor: pointer; padding: 2px 4px; white-space: nowrap; }
   .ticks span:active { color: var(--accent); }
   .row { display: flex; align-items: center; justify-content: space-between; }
   .switch { position: relative; width: 52px; height: 30px; flex: none; }
@@ -177,22 +177,31 @@
   rs.max = sumMax;  rs.step = sumMax > 100 ? 1 : 0.1;
   ls.min = 1; ls.max = maxLev; ls.step = 1;
 
-  // мітки 0/25/50/75/100%
-  function buildTicks(el, mx, onPct, fmt) {
+  function round2(x) { return Math.round(x * 100) / 100; }
+
+  // мітки точно під повзунком: компенсуємо ширину «кружечка» (thumb 22px) — інакше на краях зсув
+  var THUMB = 22;
+  function posLeft(frac) { return "calc(" + (frac * 100) + "% + " + ((0.5 - frac) * THUMB) + "px)"; }
+  function buildTicks(el, points, setVal) {   // points: [{frac, value, label}]
     el.innerHTML = "";
-    [0, 25, 50, 75, 100].forEach(function (p) {
+    points.forEach(function (pt) {
       var s = document.createElement("span");
-      s.textContent = fmt(mx * p / 100, p);
-      s.onclick = function () { onPct(p); };
+      s.textContent = pt.label;
+      s.style.left = posLeft(pt.frac);
+      s.onclick = function () { setVal(pt.value); };
       el.appendChild(s);
     });
   }
-  buildTicks($("riskTicks"), sumMax, function (p) { $("risk").value = round2(sumMax * p / 100); syncFromInput(); },
-             function (v, p) { return p + "%"; });
-  buildTicks($("levTicks"), maxLev, function (p) { $("lev").value = Math.max(1, Math.round(maxLev * p / 100)); syncFromInput(); },
-             function (v, p) { return Math.max(1, Math.round(v)) + "x"; });
-
-  function round2(x) { return Math.round(x * 100) / 100; }
+  // ризик: мітки % (позиція = той самий %), значення = % від sumMax
+  buildTicks($("riskTicks"), [0, 25, 50, 75, 100].map(function (p) {
+    return { frac: p / 100, value: round2(sumMax * p / 100), label: p + "%" };
+  }), function (v) { $("risk").value = v; syncFromInput(); });
+  // плече: мітки = РЕАЛЬНІ значення на точних позиціях (frac від min=1), щоб збігалось із повзунком
+  var levMarks = [1, Math.round(maxLev * 0.25), Math.round(maxLev * 0.5), Math.round(maxLev * 0.75), maxLev]
+    .filter(function (v, i, a) { return v >= 1 && a.indexOf(v) === i; });
+  buildTicks($("levTicks"), levMarks.map(function (v) {
+    return { frac: maxLev > 1 ? (v - 1) / (maxLev - 1) : 0, value: v, label: v + "x" };
+  }), function (v) { $("lev").value = v; syncFromInput(); });
 
   // рекомендоване (клік підставляє)
   if (recRisk > 0) {
