@@ -28,17 +28,38 @@
   .acc.demo { background: #2d4a63; color: #9fd0f5; }
   .acc.real { background: #5a3a2d; color: #f5c79f; }
   .card { background: var(--sec); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
-  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-  .field-hint { color: var(--hint); font-size: 12px; font-weight: 400; margin-top: 6px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .field-hint { color: var(--hint); font-size: 12px; font-weight: 400; margin-top: 8px; }
   .rec { color: var(--accent); font-size: 12px; font-weight: 600; margin-top: 6px; cursor: pointer; }
   .rec:active { opacity: .7; }
+  /* поле-значення без стрілок-спінера */
+  .valrow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
   input[type=number] {
-    width: 100%; padding: 12px 14px; font-size: 18px; font-weight: 600;
+    width: 60%; padding: 10px 12px; font-size: 22px; font-weight: 700;
     background: var(--bg); color: var(--text);
     border: 1.5px solid transparent; border-radius: 10px; outline: none;
   }
   input[type=number]:focus { border-color: var(--accent); }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=number] { -moz-appearance: textfield; }
   input.over { border-color: var(--danger); }
+  .pct { font-size: 15px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+  /* повзунок */
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px; margin: 16px 0 4px;
+    background: #45525e; border-radius: 6px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 2px solid #fff;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid #fff;
+  }
+  .ticks { display: flex; justify-content: space-between; margin-top: 2px; }
+  .ticks span { color: var(--hint); font-size: 11px; cursor: pointer; padding: 2px 4px; }
+  .ticks span:active { color: var(--accent); }
   .row { display: flex; align-items: center; justify-content: space-between; }
   .switch { position: relative; width: 52px; height: 30px; flex: none; }
   .switch input { opacity: 0; width: 0; height: 0; }
@@ -83,7 +104,12 @@
 
   <div class="card">
     <label>💵 Ризик на угоду ($)</label>
-    <input type="number" id="risk" min="0" step="1" inputmode="decimal">
+    <div class="valrow">
+      <input type="number" id="risk" min="0" step="1" inputmode="decimal">
+      <span class="pct" id="riskPct"></span>
+    </div>
+    <input type="range" id="riskSlider" min="0" step="1">
+    <div class="ticks" id="riskTicks"></div>
     <div class="field-hint">Скільки максимум втрачаєш, якщо угода піде в стоп. Не «обсяг позиції».</div>
     <div class="rec" id="riskRec"></div>
     <div class="warn" id="riskWarn"></div>
@@ -91,7 +117,12 @@
 
   <div class="card">
     <label>⚡ Плече</label>
-    <input type="number" id="lev" min="1" step="1" inputmode="numeric">
+    <div class="valrow">
+      <input type="number" id="lev" min="1" step="1" inputmode="numeric">
+      <span class="pct" id="levPct"></span>
+    </div>
+    <input type="range" id="levSlider" min="1" step="1">
+    <div class="ticks" id="levTicks"></div>
     <div class="field-hint" id="levHint"></div>
     <div class="rec" id="levRec"></div>
     <div class="warn" id="levWarn"></div>
@@ -115,85 +146,114 @@
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) { tg.ready(); tg.expand(); }
 
-  // Бот передає в URL: account, risk, lev, enabled, bal, rec_risk, rec_lev [, cap_risk, cap_lev, soft_risk]
-  // cap_* приходять ЛИШЕ для real (жорстка стеля). Demo — без них: вільно, лише рекомендація.
+  // Бот передає: account, risk, lev, enabled, bal, rec_risk, rec_lev, max_lev, sum_max [, cap_risk, cap_lev, soft_risk(real)]
   var q = new URLSearchParams(location.search);
   var account = q.get("account") || "demo";
-  var hasCap  = q.has("cap_risk");                       // real → true; demo → false
+  var hasCap  = q.has("cap_risk");
   var capRisk = parseFloat(q.get("cap_risk") || "0");
   var capLev  = parseInt(q.get("cap_lev")  || "0", 10);
-  var softRisk = parseFloat(q.get("soft_risk") || "0"); // поріг перепиту (real)
-  var recRisk = q.get("rec_risk");                        // рекомендована сума (1% балансу)
-  var recLev  = q.get("rec_lev") || "5";                  // рекомендоване плече
-  var bal = q.get("bal");
+  var softRisk = parseFloat(q.get("soft_risk") || "0");
+  var recRisk = parseFloat(q.get("rec_risk") || "0");
+  var recLev  = parseInt(q.get("rec_lev") || "5", 10);
+  var maxLev  = parseInt(q.get("max_lev") || "100", 10);     // біржовий максимум (demo) / cap (real)
+  var sumMax  = parseFloat(q.get("sum_max") || "0");          // верх повзунка суми (10% балансу demo / cap real)
+  var bal = parseFloat(q.get("bal") || "0");
 
   var $ = function (id) { return document.getElementById(id); };
   var badge = $("accBadge");
   badge.textContent = account;
   badge.className = "acc " + (account === "real" ? "real" : "demo");
-  if (bal !== null && bal !== "") { $("balRow").style.display = "flex"; $("bal").textContent = (+bal).toFixed(2) + " USDT"; }
+  if (q.get("bal") !== null && q.get("bal") !== "") { $("balRow").style.display = "flex"; $("bal").textContent = bal.toFixed(2) + " USDT"; }
+
+  if (sumMax <= 0) sumMax = Math.max(recRisk * 4, 10);        // запобіжник, якщо баланс 0/невідомий
 
   // початкові значення
-  $("risk").value = q.get("risk") || "";
+  $("risk").value = q.get("risk") || (recRisk > 0 ? recRisk : "");
   $("lev").value  = q.get("lev")  || recLev;
   $("enabled").checked = (q.get("enabled") === "1" || q.get("enabled") === "true");
 
-  // ── РЕКОМЕНДОВАНЕ (клік підставляє значення) ──
-  if (recRisk && +recRisk > 0) {
-    $("riskRec").textContent = "💡 Рекомендовано: " + (+recRisk) + "$ (1% балансу) — натисни, щоб підставити";
-    $("riskRec").onclick = function () { $("risk").value = +recRisk; validate(); };
-  }
-  $("levRec").textContent = "💡 Рекомендовано: " + recLev + "x — натисни, щоб підставити";
-  $("levRec").onclick = function () { $("lev").value = recLev; validate(); };
+  // налаштувати повзунки під межі
+  var rs = $("riskSlider"), ls = $("levSlider");
+  rs.max = sumMax;  rs.step = sumMax > 100 ? 1 : 0.1;
+  ls.min = 1; ls.max = maxLev; ls.step = 1;
 
-  // підписи стелі / режиму
+  // мітки 0/25/50/75/100%
+  function buildTicks(el, mx, onPct, fmt) {
+    el.innerHTML = "";
+    [0, 25, 50, 75, 100].forEach(function (p) {
+      var s = document.createElement("span");
+      s.textContent = fmt(mx * p / 100, p);
+      s.onclick = function () { onPct(p); };
+      el.appendChild(s);
+    });
+  }
+  buildTicks($("riskTicks"), sumMax, function (p) { $("risk").value = round2(sumMax * p / 100); syncFromInput(); },
+             function (v, p) { return p + "%"; });
+  buildTicks($("levTicks"), maxLev, function (p) { $("lev").value = Math.max(1, Math.round(maxLev * p / 100)); syncFromInput(); },
+             function (v, p) { return Math.max(1, Math.round(v)) + "x"; });
+
+  function round2(x) { return Math.round(x * 100) / 100; }
+
+  // рекомендоване (клік підставляє)
+  if (recRisk > 0) {
+    $("riskRec").textContent = "💡 Рекомендовано: " + recRisk + "$ (1% балансу) — натисни";
+    $("riskRec").onclick = function () { $("risk").value = recRisk; syncFromInput(); };
+  }
+  $("levRec").textContent = "💡 Рекомендовано: " + recLev + "x — натисни";
+  $("levRec").onclick = function () { $("lev").value = recLev; syncFromInput(); };
+
   $("levHint").textContent = hasCap ? ("Максимум для цього акаунта: " + capLev + "x.")
-                                    : "Демо — обмежень нема, став будь-яке.";
+                                    : ("Біржовий максимум: " + maxLev + "x.");
   $("enHint").textContent = account === "real"
-    ? "Real-акаунт. Реальні гроші — вмикається лише свідомо."
+    ? "Real-акаунт. Реальні гроші — вмикається лише адміном."
     : "Коли вимкнено — нові угоди не відкриває.";
 
-  function validate() {
+  function pctOf(v, mx) { return mx > 0 ? Math.round(v / mx * 100) : 0; }
+
+  function refresh() {
     var r = parseFloat($("risk").value || "0");
-    var l = parseInt($("lev").value || "0", 10);
-    var rw = $("riskWarn"), lw = $("levWarn");
-    var hardR = hasCap && r > capRisk;            // червоніння лише коли є стеля (real)
-    var hardL = hasCap && l > capLev;
+    var l = parseInt($("lev").value || "0", 10) || 0;
+    // % підписи: ризик — % від БАЛАНСУ (реальний ризик-менеджмент); плече — % від макс
+    $("riskPct").textContent = bal > 0 ? (round2(r / bal * 100) + "% депозиту") : (pctOf(r, sumMax) + "%");
+    $("levPct").textContent = pctOf(l, maxLev) + "% від макс";
+    // червоніння лише коли є стеля (real)
+    var hardR = hasCap && r > capRisk, hardL = hasCap && l > capLev;
     $("risk").classList.toggle("over", hardR);
     $("lev").classList.toggle("over", hardL);
-    rw.classList.toggle("show", hardR);
-    lw.classList.toggle("show", hardL);
-    if (hardR) rw.textContent = "Стеля захисту: максимум " + capRisk + "$ на угоду. Бот обріже до " + capRisk + "$.";
-    if (hardL) lw.textContent = "Стеля захисту: максимум " + capLev + "x. Бот обріже до " + capLev + "x.";
-    return { r: r, l: l };
+    $("riskWarn").classList.toggle("show", hardR);
+    $("levWarn").classList.toggle("show", hardL);
+    if (hardR) $("riskWarn").textContent = "Стеля: максимум " + capRisk + "$. Бот обріже до " + capRisk + "$.";
+    if (hardL) $("levWarn").textContent = "Стеля: максимум " + capLev + "x. Бот обріже до " + capLev + "x.";
   }
-  $("risk").addEventListener("input", validate);
-  $("lev").addEventListener("input", validate);
-  validate();
+  function syncFromInput() {       // число → повзунок
+    rs.value = Math.min(parseFloat($("risk").value || "0"), sumMax);
+    ls.value = Math.min(Math.max(parseInt($("lev").value || "1", 10) || 1, 1), maxLev);
+    refresh();
+  }
+  rs.addEventListener("input", function () { $("risk").value = round2(parseFloat(rs.value)); refresh(); });
+  ls.addEventListener("input", function () { $("lev").value = parseInt(ls.value, 10); refresh(); });
+  $("risk").addEventListener("input", syncFromInput);
+  $("lev").addEventListener("input", syncFromInput);
+  syncFromInput();
 
   function doSave() {
-    var v = validate();
-    // demo — без стелі (зберігаємо як є); real — клемп до cap (бот теж клемпить, але UI чесний)
-    var r = hasCap ? Math.min(v.r, capRisk) : v.r;
-    var l = hasCap ? Math.max(1, Math.min(v.l, capLev)) : Math.max(1, v.l);
+    var rv = parseFloat($("risk").value || "0");
+    var lv = parseInt($("lev").value || "1", 10) || 1;
+    var r = hasCap ? Math.min(rv, capRisk) : rv;
+    var l = hasCap ? Math.max(1, Math.min(lv, capLev)) : Math.max(1, lv);
     var en = $("enabled").checked;
     var payload = JSON.stringify({ account: account, risk_usd: r, leverage: l, enabled: en });
 
     function commit() {
-      if (tg) { tg.sendData(payload); }      // → бот отримає web_app_data, апка закриється
-      else {                                  // поза Telegram (перевірка вигляду)
-        $("savedMsg").style.display = "block"; $("savedMsg").textContent = "✅ Збережено (тест): " + payload;
-      }
+      if (tg) { tg.sendData(payload); }
+      else { $("savedMsg").style.display = "block"; $("savedMsg").textContent = "✅ Збережено (тест): " + payload; }
     }
-    // ПЕРЕПИТ для високих сум — ЛИШЕ для real (demo не турбуємо)
-    if (hasCap && softRisk > 0 && v.r >= softRisk) {
-      var msg = "Ти ставиш ризик " + v.r + "$ на одну угоду" +
-                (en ? "" : " (бот зараз ВИМКНЕНО)") + ". Це чимало. Точно зберегти?";
+    // перепит для високих сум — лише real
+    if (hasCap && softRisk > 0 && rv >= softRisk) {
+      var msg = "Ти ставиш ризик " + rv + "$ на одну угоду" + (en ? "" : " (бот ВИМКНЕНО)") + ". Це чимало. Точно зберегти?";
       if (tg && tg.showConfirm) { tg.showConfirm(msg, function (ok) { if (ok) commit(); }); }
       else if (confirm(msg)) commit();
-    } else {
-      commit();
-    }
+    } else { commit(); }
   }
 
   if (tg && tg.MainButton) {
