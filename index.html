@@ -30,6 +30,8 @@
   .card { background: var(--sec); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
   label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
   .field-hint { color: var(--hint); font-size: 12px; font-weight: 400; margin-top: 6px; }
+  .rec { color: var(--accent); font-size: 12px; font-weight: 600; margin-top: 6px; cursor: pointer; }
+  .rec:active { opacity: .7; }
   input[type=number] {
     width: 100%; padding: 12px 14px; font-size: 18px; font-weight: 600;
     background: var(--bg); color: var(--text);
@@ -83,6 +85,7 @@
     <label>💵 Ризик на угоду ($)</label>
     <input type="number" id="risk" min="0" step="1" inputmode="decimal">
     <div class="field-hint">Скільки максимум втрачаєш, якщо угода піде в стоп. Не «обсяг позиції».</div>
+    <div class="rec" id="riskRec"></div>
     <div class="warn" id="riskWarn"></div>
   </div>
 
@@ -90,6 +93,7 @@
     <label>⚡ Плече</label>
     <input type="number" id="lev" min="1" step="1" inputmode="numeric">
     <div class="field-hint" id="levHint"></div>
+    <div class="rec" id="levRec"></div>
     <div class="warn" id="levWarn"></div>
   </div>
 
@@ -111,16 +115,19 @@
   var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) { tg.ready(); tg.expand(); }
 
-  // параметри передає бот у URL: ?account=real&risk=3&lev=5&enabled=0&cap_risk=20&cap_lev=10&soft_risk=10&bal=123.4
+  // Бот передає в URL: account, risk, lev, enabled, bal, rec_risk, rec_lev [, cap_risk, cap_lev, soft_risk]
+  // cap_* приходять ЛИШЕ для real (жорстка стеля). Demo — без них: вільно, лише рекомендація.
   var q = new URLSearchParams(location.search);
   var account = q.get("account") || "demo";
-  var capRisk = parseFloat(q.get("cap_risk") || "20");
-  var capLev  = parseInt(q.get("cap_lev")  || "10", 10);
-  var softRisk = parseFloat(q.get("soft_risk") || (capRisk * 0.5));  // м'яка межа — вище неї перепит
+  var hasCap  = q.has("cap_risk");                       // real → true; demo → false
+  var capRisk = parseFloat(q.get("cap_risk") || "0");
+  var capLev  = parseInt(q.get("cap_lev")  || "0", 10);
+  var softRisk = parseFloat(q.get("soft_risk") || "0"); // поріг перепиту (real)
+  var recRisk = q.get("rec_risk");                        // рекомендована сума (1% балансу)
+  var recLev  = q.get("rec_lev") || "5";                  // рекомендоване плече
   var bal = q.get("bal");
 
   var $ = function (id) { return document.getElementById(id); };
-  // акаунт
   var badge = $("accBadge");
   badge.textContent = account;
   badge.className = "acc " + (account === "real" ? "real" : "demo");
@@ -128,9 +135,20 @@
 
   // початкові значення
   $("risk").value = q.get("risk") || "";
-  $("lev").value  = q.get("lev")  || "5";
+  $("lev").value  = q.get("lev")  || recLev;
   $("enabled").checked = (q.get("enabled") === "1" || q.get("enabled") === "true");
-  $("levHint").textContent = "Максимум для цього акаунта: " + capLev + "x.";
+
+  // ── РЕКОМЕНДОВАНЕ (клік підставляє значення) ──
+  if (recRisk && +recRisk > 0) {
+    $("riskRec").textContent = "💡 Рекомендовано: " + (+recRisk) + "$ (1% балансу) — натисни, щоб підставити";
+    $("riskRec").onclick = function () { $("risk").value = +recRisk; validate(); };
+  }
+  $("levRec").textContent = "💡 Рекомендовано: " + recLev + "x — натисни, щоб підставити";
+  $("levRec").onclick = function () { $("lev").value = recLev; validate(); };
+
+  // підписи стелі / режиму
+  $("levHint").textContent = hasCap ? ("Максимум для цього акаунта: " + capLev + "x.")
+                                    : "Демо — обмежень нема, став будь-яке.";
   $("enHint").textContent = account === "real"
     ? "Real-акаунт. Реальні гроші — вмикається лише свідомо."
     : "Коли вимкнено — нові угоди не відкриває.";
@@ -139,14 +157,15 @@
     var r = parseFloat($("risk").value || "0");
     var l = parseInt($("lev").value || "0", 10);
     var rw = $("riskWarn"), lw = $("levWarn");
-    var hardR = r > capRisk, hardL = l > capLev;
+    var hardR = hasCap && r > capRisk;            // червоніння лише коли є стеля (real)
+    var hardL = hasCap && l > capLev;
     $("risk").classList.toggle("over", hardR);
     $("lev").classList.toggle("over", hardL);
     rw.classList.toggle("show", hardR);
     lw.classList.toggle("show", hardL);
     if (hardR) rw.textContent = "Стеля захисту: максимум " + capRisk + "$ на угоду. Бот обріже до " + capRisk + "$.";
     if (hardL) lw.textContent = "Стеля захисту: максимум " + capLev + "x. Бот обріже до " + capLev + "x.";
-    return { r: r, l: l, hardR: hardR, hardL: hardL };
+    return { r: r, l: l };
   }
   $("risk").addEventListener("input", validate);
   $("lev").addEventListener("input", validate);
@@ -154,8 +173,9 @@
 
   function doSave() {
     var v = validate();
-    var r = Math.min(v.r, capRisk);
-    var l = Math.max(1, Math.min(v.l, capLev));
+    // demo — без стелі (зберігаємо як є); real — клемп до cap (бот теж клемпить, але UI чесний)
+    var r = hasCap ? Math.min(v.r, capRisk) : v.r;
+    var l = hasCap ? Math.max(1, Math.min(v.l, capLev)) : Math.max(1, v.l);
     var en = $("enabled").checked;
     var payload = JSON.stringify({ account: account, risk_usd: r, leverage: l, enabled: en });
 
@@ -165,8 +185,8 @@
         $("savedMsg").style.display = "block"; $("savedMsg").textContent = "✅ Збережено (тест): " + payload;
       }
     }
-    // ПЕРЕПИТ для високих сум (рішення: не блокуємо мовчки, а перепитуємо)
-    if (v.r >= softRisk) {
+    // ПЕРЕПИТ для високих сум — ЛИШЕ для real (demo не турбуємо)
+    if (hasCap && softRisk > 0 && v.r >= softRisk) {
       var msg = "Ти ставиш ризик " + v.r + "$ на одну угоду" +
                 (en ? "" : " (бот зараз ВИМКНЕНО)") + ". Це чимало. Точно зберегти?";
       if (tg && tg.showConfirm) { tg.showConfirm(msg, function (ok) { if (ok) commit(); }); }
@@ -176,7 +196,6 @@
     }
   }
 
-  // нативна кнопка Telegram + запасна HTML-кнопка
   if (tg && tg.MainButton) {
     tg.MainButton.setText("Зберегти").show();
     tg.MainButton.onClick(doSave);
