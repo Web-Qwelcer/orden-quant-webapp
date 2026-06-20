@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Orden Quant · налаштування</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #17212b);
+    --sec: var(--tg-theme-secondary-bg-color, #232e3c);
+    --text: var(--tg-theme-text-color, #fff);
+    --hint: var(--tg-theme-hint-color, #8a98a6);
+    --accent: var(--tg-theme-button-color, #3390ec);
+    --accent-text: var(--tg-theme-button-text-color, #fff);
+    --danger: #e05b5b;
+    --ok: #4cb050;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 16px 16px 40px;
+    font: 16px/1.4 -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  h1 { font-size: 19px; margin: 4px 0 2px; }
+  .sub { color: var(--hint); font-size: 13px; margin-bottom: 18px; }
+  .acc { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .acc.demo { background: #2d4a63; color: #9fd0f5; }
+  .acc.real { background: #5a3a2d; color: #f5c79f; }
+  .card { background: var(--sec); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+  .field-hint { color: var(--hint); font-size: 12px; font-weight: 400; margin-top: 6px; }
+  input[type=number] {
+    width: 100%; padding: 12px 14px; font-size: 18px; font-weight: 600;
+    background: var(--bg); color: var(--text);
+    border: 1.5px solid transparent; border-radius: 10px; outline: none;
+  }
+  input[type=number]:focus { border-color: var(--accent); }
+  input.over { border-color: var(--danger); }
+  .row { display: flex; align-items: center; justify-content: space-between; }
+  .switch { position: relative; width: 52px; height: 30px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; cursor: pointer; border-radius: 30px;
+    background: #45525e; transition: .2s;
+  }
+  .slider:before {
+    content: ""; position: absolute; height: 24px; width: 24px; left: 3px; top: 3px;
+    background: #fff; border-radius: 50%; transition: .2s;
+  }
+  .switch input:checked + .slider { background: var(--ok); }
+  .switch input:checked + .slider:before { transform: translateX(22px); }
+  .warn {
+    display: none; background: rgba(224,91,91,.13); border: 1px solid var(--danger);
+    color: var(--danger); border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-top: 10px;
+  }
+  .warn.show { display: block; }
+  .save {
+    width: 100%; padding: 15px; font-size: 17px; font-weight: 700;
+    background: var(--accent); color: var(--accent-text);
+    border: none; border-radius: 12px; cursor: pointer; margin-top: 6px;
+  }
+  .save:active { opacity: .85; }
+  .saved { color: var(--ok); text-align: center; font-weight: 600; margin-top: 12px; display: none; }
+</style>
+</head>
+<body>
+  <h1>⚙️ Налаштування бота</h1>
+  <div class="sub">Бот торгує методом ICT. Тут ти задаєш, <b>скільки</b> ризикувати — метод входу не змінюється.</div>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:14px">
+      <span>Акаунт</span>
+      <span id="accBadge" class="acc demo">demo</span>
+    </div>
+    <div class="row" id="balRow" style="display:none">
+      <span style="color:var(--hint)">Баланс</span>
+      <span id="bal" style="font-weight:600"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>💵 Ризик на угоду ($)</label>
+    <input type="number" id="risk" min="0" step="1" inputmode="decimal">
+    <div class="field-hint">Скільки максимум втрачаєш, якщо угода піде в стоп. Не «обсяг позиції».</div>
+    <div class="warn" id="riskWarn"></div>
+  </div>
+
+  <div class="card">
+    <label>⚡ Плече</label>
+    <input type="number" id="lev" min="1" step="1" inputmode="numeric">
+    <div class="field-hint" id="levHint"></div>
+    <div class="warn" id="levWarn"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label style="margin:0">🤖 Бот увімкнений</label>
+        <div class="field-hint" style="margin-top:4px" id="enHint">Коли вимкнено — нові угоди не відкриває.</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="enabled"><span class="slider"></span></label>
+    </div>
+  </div>
+
+  <button class="save" id="saveBtn">Зберегти</button>
+  <div class="saved" id="savedMsg">✅ Збережено</div>
+
+<script>
+(function () {
+  var tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  // параметри передає бот у URL: ?account=real&risk=3&lev=5&enabled=0&cap_risk=20&cap_lev=10&soft_risk=10&bal=123.4
+  var q = new URLSearchParams(location.search);
+  var account = q.get("account") || "demo";
+  var capRisk = parseFloat(q.get("cap_risk") || "20");
+  var capLev  = parseInt(q.get("cap_lev")  || "10", 10);
+  var softRisk = parseFloat(q.get("soft_risk") || (capRisk * 0.5));  // м'яка межа — вище неї перепит
+  var bal = q.get("bal");
+
+  var $ = function (id) { return document.getElementById(id); };
+  // акаунт
+  var badge = $("accBadge");
+  badge.textContent = account;
+  badge.className = "acc " + (account === "real" ? "real" : "demo");
+  if (bal !== null && bal !== "") { $("balRow").style.display = "flex"; $("bal").textContent = (+bal).toFixed(2) + " USDT"; }
+
+  // початкові значення
+  $("risk").value = q.get("risk") || "";
+  $("lev").value  = q.get("lev")  || "5";
+  $("enabled").checked = (q.get("enabled") === "1" || q.get("enabled") === "true");
+  $("levHint").textContent = "Максимум для цього акаунта: " + capLev + "x.";
+  $("enHint").textContent = account === "real"
+    ? "Real-акаунт. Реальні гроші — вмикається лише свідомо."
+    : "Коли вимкнено — нові угоди не відкриває.";
+
+  function validate() {
+    var r = parseFloat($("risk").value || "0");
+    var l = parseInt($("lev").value || "0", 10);
+    var rw = $("riskWarn"), lw = $("levWarn");
+    var hardR = r > capRisk, hardL = l > capLev;
+    $("risk").classList.toggle("over", hardR);
+    $("lev").classList.toggle("over", hardL);
+    rw.classList.toggle("show", hardR);
+    lw.classList.toggle("show", hardL);
+    if (hardR) rw.textContent = "Стеля захисту: максимум " + capRisk + "$ на угоду. Бот обріже до " + capRisk + "$.";
+    if (hardL) lw.textContent = "Стеля захисту: максимум " + capLev + "x. Бот обріже до " + capLev + "x.";
+    return { r: r, l: l, hardR: hardR, hardL: hardL };
+  }
+  $("risk").addEventListener("input", validate);
+  $("lev").addEventListener("input", validate);
+  validate();
+
+  function doSave() {
+    var v = validate();
+    var r = Math.min(v.r, capRisk);
+    var l = Math.max(1, Math.min(v.l, capLev));
+    var en = $("enabled").checked;
+    var payload = JSON.stringify({ account: account, risk_usd: r, leverage: l, enabled: en });
+
+    function commit() {
+      if (tg) { tg.sendData(payload); }      // → бот отримає web_app_data, апка закриється
+      else {                                  // поза Telegram (перевірка вигляду)
+        $("savedMsg").style.display = "block"; $("savedMsg").textContent = "✅ Збережено (тест): " + payload;
+      }
+    }
+    // ПЕРЕПИТ для високих сум (рішення: не блокуємо мовчки, а перепитуємо)
+    if (v.r >= softRisk) {
+      var msg = "Ти ставиш ризик " + v.r + "$ на одну угоду" +
+                (en ? "" : " (бот зараз ВИМКНЕНО)") + ". Це чимало. Точно зберегти?";
+      if (tg && tg.showConfirm) { tg.showConfirm(msg, function (ok) { if (ok) commit(); }); }
+      else if (confirm(msg)) commit();
+    } else {
+      commit();
+    }
+  }
+
+  // нативна кнопка Telegram + запасна HTML-кнопка
+  if (tg && tg.MainButton) {
+    tg.MainButton.setText("Зберегти").show();
+    tg.MainButton.onClick(doSave);
+    $("saveBtn").style.display = "none";
+  }
+  $("saveBtn").addEventListener("click", doSave);
+})();
+</script>
+</body>
+</html>
