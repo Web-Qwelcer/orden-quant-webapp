@@ -25,13 +25,6 @@
   .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   h1 { font-size: 19px; margin: 4px 0 2px; }
   .sub { color: var(--hint); font-size: 13px; margin-bottom: 18px; }
-  /* перемикач мови */
-  .lang { display: flex; gap: 4px; flex: none; margin-top: 4px; }
-  .lang button {
-    background: var(--sec); color: var(--hint); border: 1px solid transparent;
-    border-radius: 8px; padding: 5px 9px; font-size: 12px; font-weight: 700; cursor: pointer;
-  }
-  .lang button.on { background: var(--accent); color: var(--accent-text); }
   .acc { display: inline-block; padding: 2px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
   .acc.demo { background: #2d4a63; color: #9fd0f5; }
   .acc.real { background: #5a3a2d; color: #f5c79f; }
@@ -134,10 +127,6 @@
     <div>
       <h1 id="t_title"></h1>
       <div class="sub" id="t_sub"></div>
-    </div>
-    <div class="lang">
-      <button id="langUk" type="button">UK</button>
-      <button id="langRu" type="button">RU</button>
     </div>
   </div>
 
@@ -283,6 +272,8 @@
   function fmt(s, o) { return s.replace(/\{(\w+)\}/g, function (_, k) { return (o && o[k] != null) ? o[k] : ""; }); }
   var lang = "uk";
   function T(k) { return (I18N[lang] || I18N.uk)[k]; }
+  // авто-визначення мови зі значення (URL-параметр lang або Telegram language_code): ru* → ru, інакше uk
+  function pickLang(v) { return /^ru/i.test(v || "") ? "ru" : "uk"; }
 
   // ---- параметри від бота ----
   // account, margin, lev, enabled, bal, rec_margin, rec_lev, max_lev, sum_max [, cap_margin, cap_lev, soft_margin(real)]
@@ -357,8 +348,6 @@
   // ---- застосувати мову до всіх статичних + динамічних текстів ----
   function applyLang() {
     document.documentElement.lang = lang;
-    $("langUk").className = lang === "uk" ? "on" : "";
-    $("langRu").className = lang === "ru" ? "on" : "";
     $("t_title").textContent = T("title");
     $("t_sub").innerHTML = T("sub");
     $("t_account").textContent = T("account");
@@ -429,15 +418,10 @@
     } else { commit(); }
   }
 
-  // перемикач мови
-  function setLang(l) { lang = (l === "ru") ? "ru" : "uk"; try { localStorage.setItem("orden_lang", lang); } catch (e) {} applyLang(); }
-  $("langUk").onclick = function () { setLang("uk"); };
-  $("langRu").onclick = function () { setLang("ru"); };
-
-  // дефолт мови: збережений вибір → мова Telegram → укр
-  var saved = null; try { saved = localStorage.getItem("orden_lang"); } catch (e) {}
+  // мова автоматично: URL-параметр lang (передав бот) → мова Telegram → укр
+  var urlLang = q.get("lang") || "";
   var tgLang = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code || "";
-  lang = saved || (/^ru/i.test(tgLang) ? "ru" : "uk");
+  lang = pickLang(urlLang || tgLang);
 
   if (tg && tg.MainButton) {
     tg.MainButton.show();
@@ -458,10 +442,10 @@
     $("funnelView").hidden = false;
     if (!data || !data.periods) { $("t_title").textContent = "📈"; return; }
 
-    // мова: збережений вибір → мова Telegram → укр (як у формі)
-    var fSaved = null; try { fSaved = localStorage.getItem("orden_lang"); } catch (e) {}
+    // мова автоматично: URL-параметр lang → мова Telegram → укр (як у формі)
+    var fUrlLang = q.get("lang") || "";
     var fTgLang = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code || "";
-    lang = fSaved || (/^ru/i.test(fTgLang) ? "ru" : "uk");
+    lang = pickLang(fUrlLang || fTgLang);
 
     var period = "all";                 // дефолтний період
     var STEP_LABELS = data.step_labels || {};
@@ -520,8 +504,6 @@
 
     function renderAll() {
       document.documentElement.lang = lang;
-      $("langUk").className = lang === "uk" ? "on" : "";
-      $("langRu").className = lang === "ru" ? "on" : "";
       $("t_title").textContent = T("fTitle");
       $("t_sub").innerHTML = T("fSub");
       // сегмент-перемикач періоду
@@ -543,10 +525,6 @@
     Array.prototype.forEach.call($("fSeg").children, function (b) {
       b.onclick = function () { period = b.getAttribute("data-p"); renderAll(); };
     });
-    // перемикач мови (той самий, що у формі, але перемальовує аналітику)
-    function fSetLang(l) { lang = (l === "ru") ? "ru" : "uk"; try { localStorage.setItem("orden_lang", lang); } catch (e) {} renderAll(); }
-    $("langUk").onclick = function () { fSetLang("uk"); };
-    $("langRu").onclick = function () { fSetLang("ru"); };
 
     renderAll();
   }
