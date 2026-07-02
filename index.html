@@ -94,6 +94,39 @@
   }
   .save:active { opacity: .85; }
   .saved { color: var(--ok); text-align: center; font-weight: 600; margin-top: 12px; display: none; }
+
+  /* ── Адмін-аналітика воронки ── */
+  #settingsView[hidden], #funnelView[hidden] { display: none; }
+  .seg { display: flex; gap: 6px; margin-bottom: 14px; }
+  .seg button {
+    flex: 1; background: var(--sec); color: var(--hint); border: 1px solid transparent;
+    border-radius: 10px; padding: 9px 0; font-size: 13px; font-weight: 700; cursor: pointer;
+  }
+  .seg button.on { background: var(--accent); color: var(--accent-text); }
+  .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .tot { background: var(--sec); border-radius: 14px; padding: 14px; }
+  .tot .n { font-size: 28px; font-weight: 800; line-height: 1.1; }
+  .tot .l { color: var(--hint); font-size: 12px; margin-top: 4px; }
+  .tot.ok .n { color: var(--ok); }
+  .tot.danger .n { color: var(--danger); }
+  .tot.accent .n { color: var(--accent); }
+  .sec-title { font-size: 14px; font-weight: 700; margin: 4px 0 10px; }
+  /* вертикальна воронка: рядок = етап (бар + значення), між рядками — % дропу */
+  .fstep { margin-bottom: 4px; }
+  .fstep .lbl { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 4px; }
+  .fstep .lbl .v { font-weight: 700; }
+  .fbar { height: 22px; background: var(--bg); border-radius: 7px; overflow: hidden; }
+  .fbar > span { display: block; height: 100%; background: var(--accent); border-radius: 7px; min-width: 2px; transition: width .25s; }
+  .fdrop { text-align: right; color: var(--danger); font-size: 11px; font-weight: 600; margin: 2px 2px 8px; height: 14px; }
+  .fdrop.zero { color: var(--hint); }
+  /* таблиця UTM */
+  table.utm { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.utm th, table.utm td { text-align: right; padding: 8px 6px; border-bottom: 1px solid rgba(255,255,255,.06); }
+  table.utm th:first-child, table.utm td:first-child { text-align: left; }
+  table.utm th { color: var(--hint); font-weight: 600; font-size: 12px; }
+  table.utm td.src { font-weight: 600; }
+  table.utm td.conv { color: var(--accent); font-weight: 700; }
+  .muted { color: var(--hint); font-size: 12px; text-align: center; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -108,6 +141,8 @@
     </div>
   </div>
 
+  <!-- ── ФОРМА НАЛАШТУВАНЬ (ліди + адміни) ── -->
+  <div id="settingsView">
   <div class="card">
     <div class="row" style="margin-bottom:14px">
       <span id="t_account"></span>
@@ -158,6 +193,26 @@
 
   <button class="save" id="saveBtn"></button>
   <div class="saved" id="savedMsg"></div>
+  </div><!-- /#settingsView -->
+
+  <!-- ── АДМІН-АНАЛІТИКА ВОРОНКИ (лише коли передано ?funnel=…) ── -->
+  <div id="funnelView" hidden>
+    <div class="seg" id="fSeg">
+      <button type="button" data-p="today"></button>
+      <button type="button" data-p="week"></button>
+      <button type="button" data-p="all"></button>
+    </div>
+    <div class="totals" id="fTotals"></div>
+    <div class="card">
+      <div class="sec-title" id="fFunnelTitle"></div>
+      <div id="fSteps"></div>
+    </div>
+    <div class="card">
+      <div class="sec-title" id="fUtmTitle"></div>
+      <table class="utm"><thead><tr id="fUtmHead"></tr></thead><tbody id="fUtmBody"></tbody></table>
+    </div>
+    <div class="muted" id="fGenAt"></div>
+  </div>
 
 <script>
 (function () {
@@ -186,7 +241,14 @@
       warnSum: "Стеля: максимум {x}$. Бот обріже до {x}$.",
       warnLev: "Стеля: максимум {x}x. Бот обріже до {x}x.",
       confirm: "Ти ставиш суму входу {x}$ на одну угоду{e}. Це чимало. Точно зберегти?",
-      confirmOff: " (бот ВИМКНЕНО)"
+      confirmOff: " (бот ВИМКНЕНО)",
+      // — аналітика воронки —
+      fTitle: "📈 Аналітика воронки", fSub: "Конверсія лідів по етапах онбордингу та джерелах.",
+      fToday: "Сьогодні", fWeek: "Тиждень", fAll: "Усе",
+      totLeads: "Усього лідів", totActive: "Активні (пробний)", totPaid: "Сплатили", totDrop: "Відпали",
+      fFunnel: "Воронка по етапах", fUtm: "Джерела (UTM)",
+      utmSrc: "Джерело", utmLeads: "Лідів", utmPaid: "Оплата", utmConv: "Конв.",
+      fDrop: "−{x}% відпало", fEmpty: "За цей період лідів нема.", fGen: "Оновлено: {x}"
     },
     ru: {
       title: "⚙️ Настройки бота",
@@ -208,7 +270,14 @@
       warnSum: "Лимит: максимум {x}$. Бот обрежет до {x}$.",
       warnLev: "Лимит: максимум {x}x. Бот обрежет до {x}x.",
       confirm: "Ты ставишь сумму входа {x}$ на одну сделку{e}. Это немало. Точно сохранить?",
-      confirmOff: " (бот ВЫКЛЮЧЕН)"
+      confirmOff: " (бот ВЫКЛЮЧЕН)",
+      // — аналитика воронки —
+      fTitle: "📈 Аналитика воронки", fSub: "Конверсия лидов по этапам онбординга и источникам.",
+      fToday: "Сегодня", fWeek: "Неделя", fAll: "Всё",
+      totLeads: "Всего лидов", totActive: "Активные (пробный)", totPaid: "Оплатили", totDrop: "Отвалились",
+      fFunnel: "Воронка по этапам", fUtm: "Источники (UTM)",
+      utmSrc: "Источник", utmLeads: "Лидов", utmPaid: "Оплата", utmConv: "Конв.",
+      fDrop: "−{x}% отвалилось", fEmpty: "За этот период лидов нет.", fGen: "Обновлено: {x}"
     }
   };
   function fmt(s, o) { return s.replace(/\{(\w+)\}/g, function (_, k) { return (o && o[k] != null) ? o[k] : ""; }); }
@@ -230,6 +299,16 @@
   var bal = parseFloat(q.get("bal") || "0");
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // ═══════════ РЕЖИМ АДМІН-АНАЛІТИКИ ВОРОНКИ ═══════════
+  // Бот передав ?funnel=<json> → показуємо аналітику (замість форми) і виходимо: форма нижче не потрібна.
+  // Дані вже пораховані на бекенді (build_funnel_data): три періоди + мітки етапів. Фронт лише малює.
+  var funnelRaw = q.get("funnel");
+  if (funnelRaw) {
+    initFunnel(funnelRaw);
+    return;
+  }
+
   var badge = $("accBadge");
   badge.textContent = account;
   badge.className = "acc " + (account === "real" ? "real" : "demo");
@@ -369,6 +448,108 @@
 
   syncFromInput();
   applyLang();
+
+  // ═══════════ АНАЛІТИКА ВОРОНКИ (адмін) ═══════════
+  function initFunnel(raw) {
+    var data;
+    try { data = JSON.parse(raw); } catch (e) { data = null; }
+    // показуємо саме цей блок, форму ховаємо
+    $("settingsView").hidden = true;
+    $("funnelView").hidden = false;
+    if (!data || !data.periods) { $("t_title").textContent = "📈"; return; }
+
+    // мова: збережений вибір → мова Telegram → укр (як у формі)
+    var fSaved = null; try { fSaved = localStorage.getItem("orden_lang"); } catch (e) {}
+    var fTgLang = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code || "";
+    lang = fSaved || (/^ru/i.test(fTgLang) ? "ru" : "uk");
+
+    var period = "all";                 // дефолтний період
+    var STEP_LABELS = data.step_labels || {};
+
+    function esc(s) { return String(s).replace(/[&<>]/g, function (c) { return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]; }); }
+    function pct(a, b) { return b > 0 ? Math.round(a / b * 100) : 0; }
+
+    function renderTotals(p) {
+      var t = [
+        { cls: "", n: p.total, l: T("totLeads") },
+        { cls: "accent", n: p.reached, l: T("totActive") },
+        { cls: "ok", n: p.paid, l: T("totPaid") },
+        { cls: "danger", n: p.expired, l: T("totDrop") }
+      ];
+      $("fTotals").innerHTML = t.map(function (x) {
+        return '<div class="tot ' + x.cls + '"><div class="n">' + x.n + '</div><div class="l">' + esc(x.l) + '</div></div>';
+      }).join("");
+    }
+
+    // вертикальна воронка: бар кожного етапу + % дропу до наступного (скільки % відвалилось між сусідами)
+    function renderSteps(p) {
+      var steps = p.steps || [];
+      var mx = 0;
+      steps.forEach(function (s) { mx = Math.max(mx, p.per_step[s] || 0); });
+      var html = "";
+      steps.forEach(function (s, i) {
+        var k = p.per_step[s] || 0;
+        var lbl = (STEP_LABELS[s] && STEP_LABELS[s][lang]) || s;
+        var w = mx > 0 ? Math.round(k / mx * 100) : 0;
+        html += '<div class="fstep"><div class="lbl"><span>' + esc(lbl) + '</span><span class="v">' + k + '</span></div>'
+              + '<div class="fbar"><span style="width:' + w + '%"></span></div></div>';
+        // дроп до наступного етапу (не після останнього)
+        if (i < steps.length - 1) {
+          var next = p.per_step[steps[i + 1]] || 0;
+          var d = k > 0 ? Math.round((k - next) / k * 100) : 0;
+          if (d < 0) d = 0;   // приплив (реєстрація пізніше за старт) — не показуємо від'ємний дроп
+          html += '<div class="fdrop' + (d === 0 ? " zero" : "") + '">' + fmt(T("fDrop"), { x: d }) + '</div>';
+        }
+      });
+      $("fSteps").innerHTML = html;
+    }
+
+    // таблиця UTM: source → лідів / оплата / конверсія %. Сортуємо за к-стю лідів (спадання).
+    function renderUtm(p) {
+      $("fUtmHead").innerHTML = "<th>" + esc(T("utmSrc")) + "</th><th>" + esc(T("utmLeads"))
+        + "</th><th>" + esc(T("utmPaid")) + "</th><th>" + esc(T("utmConv")) + "</th>";
+      var utm = p.utm || {};
+      var keys = Object.keys(utm).sort(function (a, b) { return utm[b].leads - utm[a].leads; });
+      if (!keys.length) { $("fUtmBody").innerHTML = '<tr><td colspan="4" class="muted">' + esc(T("fEmpty")) + "</td></tr>"; return; }
+      $("fUtmBody").innerHTML = keys.map(function (k) {
+        var r = utm[k];
+        return "<tr><td class=\"src\">" + esc(k) + "</td><td>" + r.leads + "</td><td>" + r.paid
+             + '</td><td class="conv">' + pct(r.paid, r.leads) + "%</td></tr>";
+      }).join("");
+    }
+
+    function renderAll() {
+      document.documentElement.lang = lang;
+      $("langUk").className = lang === "uk" ? "on" : "";
+      $("langRu").className = lang === "ru" ? "on" : "";
+      $("t_title").textContent = T("fTitle");
+      $("t_sub").innerHTML = T("fSub");
+      // сегмент-перемикач періоду
+      var segLbl = { today: T("fToday"), week: T("fWeek"), all: T("fAll") };
+      Array.prototype.forEach.call($("fSeg").children, function (b) {
+        var pn = b.getAttribute("data-p");
+        b.textContent = segLbl[pn];
+        b.className = (pn === period) ? "on" : "";
+      });
+      $("fFunnelTitle").textContent = T("fFunnel");
+      $("fUtmTitle").textContent = T("fUtm");
+      var p = data.periods[period] || data.periods.all;
+      renderTotals(p); renderSteps(p); renderUtm(p);
+      var gen = data.generated_at ? String(data.generated_at).slice(0, 16).replace("T", " ") : "";
+      $("fGenAt").textContent = gen ? fmt(T("fGen"), { x: gen }) : "";
+    }
+
+    // перемикач періоду
+    Array.prototype.forEach.call($("fSeg").children, function (b) {
+      b.onclick = function () { period = b.getAttribute("data-p"); renderAll(); };
+    });
+    // перемикач мови (той самий, що у формі, але перемальовує аналітику)
+    function fSetLang(l) { lang = (l === "ru") ? "ru" : "uk"; try { localStorage.setItem("orden_lang", lang); } catch (e) {} renderAll(); }
+    $("langUk").onclick = function () { fSetLang("uk"); };
+    $("langRu").onclick = function () { fSetLang("ru"); };
+
+    renderAll();
+  }
 })();
 </script>
 </body>
